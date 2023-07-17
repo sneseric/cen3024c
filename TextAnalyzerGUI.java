@@ -7,11 +7,17 @@ import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.IOException;
+import java.sql.*;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+
 
 public class TextAnalyzerGUI {
     public static final String URL = "https://www.gutenberg.org/files/1065/1065-h/1065-h.htm";
@@ -20,8 +26,14 @@ public class TextAnalyzerGUI {
     public static JTextArea resultTextArea;
     public static JButton startButton;
     public static JFrame frame;
+    public static Connection connection;
 
-    // Run GUI 
+    // MySQL connection details
+    public static final String DB_URL = "jdbc:mysql://localhost:3306/word_occurences";
+    public static final String DB_USERNAME = "root";
+    public static final String DB_PASSWORD = "password";
+
+    // Run GUI
     public static void main(String[] args) {
         SwingUtilities.invokeLater(TextAnalyzerGUI::createAndShowGUI);
     }
@@ -47,7 +59,7 @@ public class TextAnalyzerGUI {
         frame.setVisible(true);
     }
 
-    //Listen for start button 
+    // Listen for start button
     public static class StartButtonListener implements ActionListener {
         @Override
         public void actionPerformed(ActionEvent e) {
@@ -76,11 +88,11 @@ public class TextAnalyzerGUI {
                         }
                     }
 
-                    // Sort word frequencies in descending order
-                    Map<String, Integer> sortedWords = wordFreq.entrySet().stream()
-                            .sorted(Map.Entry.<String, Integer>comparingByValue().reversed())
-                            .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue,
-                                    (e1, e2) -> e1, LinkedHashMap::new));
+                    // Store word frequencies in the database
+                    storeWordFrequencies(wordFreq);
+
+                    // Retrieve word frequencies from the database
+                    Map<String, Integer> sortedWords = retrieveWordFrequencies();
 
                     StringBuilder resultBuilder = new StringBuilder();
                     for (Map.Entry<String, Integer> entry : sortedWords.entrySet()) {
@@ -94,10 +106,10 @@ public class TextAnalyzerGUI {
                         resultTextArea.setText(resultBuilder.toString());
                         startButton.setEnabled(true);
                     });
-                } catch (IOException ex) {
+                } catch (IOException | SQLException ex) {
                     ex.printStackTrace();
                     SwingUtilities.invokeLater(() -> {
-                        resultTextArea.setText("An error occurred while fetching the webpage.");
+                        resultTextArea.setText("An error occurred while processing the text.");
                         startButton.setEnabled(true);
                     });
                 }
@@ -106,12 +118,40 @@ public class TextAnalyzerGUI {
         }
     }
 
+    public static void storeWordFrequencies(Map<String, Integer> wordFreq) throws SQLException {
+        try (Connection connection = DriverManager.getConnection(DB_URL, DB_USERNAME, DB_PASSWORD)) {
+            String insertQuery = "REPLACE INTO word (word, occurrences) VALUES (?, ?)";
+            try (PreparedStatement preparedStatement = connection.prepareStatement(insertQuery)) {
+                for (Map.Entry<String, Integer> entry : wordFreq.entrySet()) {
+                    String word = entry.getKey();
+                    int occurrences = entry.getValue();
+                    preparedStatement.setString(1, word);
+                    preparedStatement.setInt(2, occurrences);
+                    preparedStatement.executeUpdate();
+                }
+            }
+        }
+    }
+    
+    public static Map<String, Integer> retrieveWordFrequencies() throws SQLException {
+        Map<String, Integer> wordFreq = new LinkedHashMap<>();
+        try (Connection connection = DriverManager.getConnection(DB_URL, DB_USERNAME, DB_PASSWORD)) {
+            String selectQuery = "SELECT word, occurrences FROM word";
+            try (Statement statement = connection.createStatement();
+                 ResultSet resultSet = statement.executeQuery(selectQuery)) {
+                while (resultSet.next()) {
+                    String word = resultSet.getString("word");
+                    int occurrences = resultSet.getInt("occurrences");
+                    wordFreq.put(word, occurrences);
+                }
+            }
+        }
+        return wordFreq;
+    }
+    
+    
+    
     public static JFrame getFrame() {
         return frame;
     }
 }
-
-
-
-
-
